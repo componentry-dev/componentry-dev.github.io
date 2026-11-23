@@ -613,6 +613,33 @@ legible — including the ones I'd never have thought to test.
   and cycle the canvas between light, grid and dark to check contrast.
 - **Properties** — every editable field for the selected block. Repeatable lists
   (cards, slides, plans) can be added, reordered, duplicated and removed.
+
+The Properties panel opens on the content and keeps the settings a click away:
+
+- **Sections fold.** Sections holding words, pictures or lists start open; sections of
+  pure settings (sliders, switches, menus) start folded, and so does **Advanced** on
+  every block. Open or fold one yourself and it stays that way in every block with a
+  section of that name — open Motion once and it is open wherever there is a Motion.
+  The choice is kept in this browser.
+- **A folded section says what changed inside it.** "2 changed" on a folded Advanced
+  means two of its settings are off their defaults, so a custom anchor or padding
+  never hides behind a fold.
+- **Help is behind the "?"** beside a field's name. Screen readers still read it with
+  the field, every time.
+- **One list entry open at a time.** Opening a banner, card or plan closes the one
+  before, and the open one's name stays pinned under its section's name while you
+  scroll its fields.
+- **Find a setting** at the top narrows the panel to the fields whose name matches,
+  opening whatever section they are in. A section's name brings the whole section; a
+  list is found by the fields inside it ("headline" finds Banners). "color" finds
+  "Colour". `Esc` clears it and puts the folds back.
+
+Selecting a block always shows its properties, from the top, even if Design tokens was
+the tab open.
+
+Before this, a block's panel averaged 2,829px, nearly four screens, and the shared
+Advanced section was 1,478px of that on every block. The median panel now opens at
+902px, and ten of the 44 fit without scrolling at all.
 - **Design tokens** — colour, type and shape shared by every block, with six presets.
 
 Headline and body fields accept line breaks, plus `**bold**` and `*italic*`.
@@ -1278,7 +1305,7 @@ test/
                         Parallax Banner turning bold, and the Hero Slider held to the same rules once it carries the same effect;
                         plays the slider's background video against a real clip,
                         and runs its timing on a clock the test moves on exactly;
-                        246 assertions
+                        249 assertions
   wysiwyg.html          Drives TinyMCE, GrapesJS, Quill and DOMPurify for real;
                         352 round-trips, then functionally probes what survives.
                         Structured data (JSON-LD) is left in the markup rather
@@ -1307,7 +1334,7 @@ test/
                         project lacks is named, a Webflow export is sized
                         piece by piece, in the characters Webflow counts, and a
                         territory naming a state the map does not know, or a
-                        state two territories both claim, is caught; 46
+                        state two territories both claim, is caught; 50
                         assertions
   scroll-range.html     The case the degradation harness cannot reach: scroll
                         timelines exist but never advance — a block nobody
@@ -1348,17 +1375,31 @@ test/
                         still opens, a whole-table import, what a brand new
                         table ships as, and which lists offer the paste panel
                         at all; 73 assertions
+  inspector.html        Opens every block's Properties panel at the editor's
+                        size and asserts it opens on the content: Advanced and
+                        the settings sections folded, no help text showing,
+                        something to edit in view, and nothing longer than
+                        1,600px. Then that a fold is remembered by name, a
+                        folded section counts what changed inside it, "?"
+                        shows and hides its help and still describes the field
+                        to a screen reader, one list entry opens at a time, and
+                        the search finds settings by name, by section and by
+                        the fields inside a list; 38 assertions
   freshness.html        Asserts the build check corrects a genuinely stale page and,
                         just as importantly, leaves every other case alone; 14 assertions
   defaults.html         Pins what a brand new project ships as — Inter actually
-                        imported rather than merely named, 1px button corners —
+                        loaded rather than merely named, under a private name
+                        and with no @import, 1px button corners —
                         since a default that reverts is invisible until an
-                        export is already out the door. And what an old one
+                        export is already out the door. Then that an imported
+                        webfont is declared the same way and a hostile face is
+                        dropped, and that every block carries one build stamp.
+                        And what an old one
                         opens as: a Parallax Banner saved under the retired
                         strength slider keeps the movement it was given. And
                         the two samples that quote the size of the library are
                         read against the registry, since they still said 41
-                        after the library reached 44; 22 assertions
+                        after the library reached 44; 40 assertions
   radius.html           Asserts one slider reaches every rounded container and
                         that circles and pills are left alone, and fails if any
                         container drifts onto a bare pixel radius; 19 assertions
@@ -1436,7 +1477,7 @@ copy it fetched ten minutes ago — which is how one intermittent carousel failu
 survived two rounds of "fixes" that were never actually running.
 ```
 
-**Fourteen harnesses, 956 assertions**, plus two that report coverage rather than a count:
+**Fifteen harnesses, 1,019 assertions**, plus two that report coverage rather than a count:
 `gallery.html` builds all 44 through the real export path, and `degrade.html` judges all 44
 under six separate CSS failures. Every one is green at the build in `version.txt`.
 
