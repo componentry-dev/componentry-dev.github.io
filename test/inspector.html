@@ -1,0 +1,209 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Componentry — the properties panel</title>
+<link rel="stylesheet" href="../css/app.css">
+<style>
+  /* The editor's own stylesheet, so folding and hiding are judged as the
+     browser really lays them out; this page's report sits on top of it. */
+  html, body { height: auto; overflow: auto; }
+  body { display: block; margin: 24px; background: #fff; color: #141210; font: 14px/1.6 system-ui; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #6b625a; margin: 0 0 18px; max-width: 76ch; }
+  #out { white-space: pre-wrap; font: 12.5px/1.7 ui-monospace, Menlo, Consolas, monospace; }
+  .bar { padding: 10px 14px; border-radius: 8px; font-weight: 700; margin-bottom: 16px; }
+  .ok { background: #e8f4ea; color: #14532d; }
+  .bad { background: #fdeaea; color: #7f1d1d; }
+  /* A panel the size the editor gives it, off to the side. */
+  #rig { position: absolute; left: -9999px; top: 0; width: 306px; height: 734px; }
+</style>
+<h1>The properties panel</h1>
+<p class="sub">A block's panel averaged 2,829px, nearly four screens, and the shared
+Advanced section was more than half of it on every block. Sections now fold, opening
+on the content and folding the settings; help sits behind a "?"; one list entry opens
+at a time; and a search box narrows the panel to the settings that match. This pins all
+of that, across every block in the library, so a new block or a new field cannot quietly
+bring the long panel back.</p>
+<div id="bar" class="bar">running…</div>
+<div id="out"></div>
+<div id="rig" class="rail"><div id="host" class="rail__body"></div></div>
+<script>
+  ['core.js', 'components/content.js', 'components/heroes.js', 'components/interactive.js',
+   'components/media.js', 'components/modern.js', 'components/product.js', 'components/diagram.js', 'components/territory.js',
+   'richtext.js', 'inspector.js'].forEach(function (f) {
+    document.write('<scr' + 'ipt src="../js/' + f + '?t=' + Date.now() + '"><\/scr' + 'ipt>');
+  });
+</script>
+<script>
+var log = [], pass = 0, fail = 0;
+function check(name, got, want) {
+  var ok = String(got) === String(want);
+  ok ? pass++ : fail++;
+  log.push((ok ? 'PASS  ' : 'FAIL  ') + name + '\n        got ' + got + (ok ? '' : '\n        want ' + want));
+}
+
+window.addEventListener('load', function () {
+  var I = CB.Inspector;
+  var host = document.getElementById('host');
+  try { localStorage.removeItem('componentry.ui.v1'); } catch (e) {}
+
+  function draw(id, props, opts) {
+    var def = CB.get(id);
+    props = props || CB.hydrate(def, {});
+    var view = I.render(host, { props: CB.fields(def) }, props, function () {}, opts || { panel: 'props', fold: 'settings' });
+    return { def: def, props: props, view: view };
+  }
+  function sections() {
+    return [].map.call(host.querySelectorAll('.ig'), function (g) {
+      var b = g.querySelector('.ig__toggle');
+      return b ? (g.classList.contains('is-open') ? '+' : '-') + b.querySelector('.ig__name').textContent : '';
+    }).filter(Boolean).join(' ');
+  }
+  function shown(sel) {
+    return [].filter.call(host.querySelectorAll(sel), function (n) { return n.offsetParent !== null; });
+  }
+
+  // --- every block ------------------------------------------------------
+  var all = CB.all(), worst = { id: '', h: 0 }, advOpen = [], helpOpen = [], undescribed = [],
+      noContentOpen = [], tall = [];
+  all.forEach(function (def) {
+    draw(def.id);
+    var s = sections();
+    if (/\+Advanced/.test(s)) advOpen.push(def.id);
+    /* Field help has an id, for its "?" to point at. The Table's grid keeps its
+       how-to line in view: it is how an empty table is filled, not a note. */
+    if (shown('.fld__help[id]').length) helpOpen.push(def.id);
+    if (host.scrollHeight > worst.h) worst = { id: def.id, h: host.scrollHeight };
+    if (host.scrollHeight > 1600) tall.push(def.id + ' ' + host.scrollHeight);
+    /* Something to edit is in view without a click: an open section or the
+       untitled fields before the first one. */
+    if (!shown('.fld').length) noContentOpen.push(def.id);
+    [].forEach.call(host.querySelectorAll('.fld__q'), function (q) {
+      var help = document.getElementById(q.getAttribute('aria-controls'));
+      var fld = q.closest('.fld');
+      var described = fld.querySelector('[aria-describedby="' + help.id + '"]');
+      /* The Article's formatting editor has no single input to hang it on. */
+      if (!described && !fld.querySelector('.rte')) undescribed.push(def.id + ': ' + q.getAttribute('aria-label'));
+    });
+  });
+  check('all ' + all.length + ' blocks open with Advanced folded', advOpen.join(', ') || 'none', 'none');
+  check('no block opens with help text showing', helpOpen.join(', ') || 'none', 'none');
+  check('every block opens with something to edit in view', noContentOpen.join(', ') || 'none', 'none');
+  check('every "?" names the help it opens to a screen reader', undescribed.slice(0, 4).join(' | ') || 'none', 'none');
+  /* The long panel coming back. 1,600px is just over two screens of the
+     editor's 734px panel; the longest today is the Interactive Diagram, whose
+     hotspots are its content. */
+  check('no block opens longer than 1,600px (longest: ' + worst.id + ' ' + worst.h + 'px)', tall.join(', ') || 'none', 'none');
+
+  // --- what opens -------------------------------------------------------
+  draw('side-scroll');
+  check('Sideways Showcase: words and products open, settings folded', sections(),
+        '+Heading +Products -Motion -Layout -Style -Advanced');
+  draw('hero-slider');
+  check('Hero Slider: the banners open, the rest folded', /^\+Slides( -[A-Za-z ]+)+$/.test(sections().replace(/\+Layout/, '-Layout')), true);
+  check('a section of settings reads as settings', I.isContent({ k: 'size', t: 'range' }), false);
+  check('a text box reads as content', I.isContent({ k: 'title', t: 'text' }), true);
+  check('but the shared Anchor ID is a setting, text box or not', I.isContent({ k: '_anchor', t: 'text' }), false);
+
+  // --- folding is remembered by name -------------------------------------
+  draw('side-scroll');
+  host.querySelectorAll('.ig__toggle')[3].click();      // Layout
+  check('opening Layout opens it', sections(), '+Heading +Products -Motion +Layout -Style -Advanced');
+  draw('card-grid');
+  check('and Card Grid opens its own Layout too', /\+Layout/.test(sections()), true);
+  check('folds are kept by panel: the tokens panel is not touched',
+        JSON.stringify((JSON.parse(localStorage.getItem('componentry.ui.v1') || '{}').folds) || {}), '{"props:Layout":true}');
+  host.querySelector('.ig__toggle').click();
+  try { localStorage.removeItem('componentry.ui.v1'); } catch (e) {}
+
+  // --- a folded section owns up to what changed inside it ----------------
+  var cg = CB.hydrate(CB.get('card-grid'), {});
+  cg._anchor = 'our-cards';
+  cg._padTop = 120;
+  draw('card-grid', cg);
+  var adv = [].filter.call(host.querySelectorAll('.ig'), function (g) { return /Advanced/.test(g.textContent); })[0];
+  check('folded Advanced says how many settings were changed', adv.querySelector('.ig__badge').textContent, '2 changed');
+  check('and the badge is visible while folded', getComputedStyle(adv.querySelector('.ig__badge')).display !== 'none', true);
+  adv.querySelector('.ig__toggle').click();
+  check('open, the fields speak for themselves and the badge goes', getComputedStyle(adv.querySelector('.ig__badge')).display, 'none');
+  adv.querySelector('.ig__toggle').click();
+  try { localStorage.removeItem('componentry.ui.v1'); } catch (e) {}
+  check('a select\'s "3" is not a change from a default of 3', I.same('3', 3), true);
+  check('an edited list is a change', I.same([{ a: 1 }], [{ a: 2 }]), false);
+  check('a list with its keys in another order is not', I.same([{ a: 1, b: 2 }], [{ b: 2, a: 1 }]), true);
+  check('blank and missing are the same', I.same('', undefined), true);
+
+  // --- help ---------------------------------------------------------------
+  draw('side-scroll');
+  host.querySelectorAll('.ig__toggle')[2].click();      // Motion
+  var q = shown('.fld__q')[0];
+  var help = document.getElementById(q.getAttribute('aria-controls'));
+  check('help starts hidden', help.offsetParent === null, true);
+  q.click();
+  check('"?" shows it', help.offsetParent !== null && q.getAttribute('aria-expanded') === 'true', true);
+  q.click();
+  check('and hides it again', help.offsetParent === null && q.getAttribute('aria-expanded') === 'false', true);
+  var fldTop = q.closest('.fld__top');
+  var plain = shown('.fld__top').filter(function (t) { return !t.querySelector('.fld__q') && !t.classList.contains('fld__top--toggle'); })[0];
+  check('a "?" makes its label row no taller than a label alone',
+        Math.round(fldTop.getBoundingClientRect().height) + 'px', Math.round(plain.getBoundingClientRect().height) + 'px');
+  check('and still gives a 24px target', Math.round(q.getBoundingClientRect().height), 24);
+  try { localStorage.removeItem('componentry.ui.v1'); } catch (e) {}
+
+  // --- one list entry open at a time --------------------------------------
+  draw('hero-slider');
+  var toggles = host.querySelectorAll('.lrow__toggle');
+  toggles[0].click();
+  toggles[1].click();
+  var openRows = [].map.call(host.querySelectorAll('.lrow'), function (r) { return r.classList.contains('is-open') ? 1 : 0; }).join('');
+  check('opening the second banner closes the first', openRows, '010');
+  check('each says whether it is open', [].map.call(toggles, function (t) { return t.getAttribute('aria-expanded'); }).join(','), 'false,true,false');
+  host.querySelector('.list__add').click();
+  openRows = [].map.call(host.querySelectorAll('.lrow'), function (r) { return r.classList.contains('is-open') ? 1 : 0; }).join('');
+  check('a new banner opens on its own', openRows, '0001');
+
+  // --- find a setting -----------------------------------------------------
+  var r = draw('hero-slider');
+  function labels() {
+    return shown('.fld').filter(function (f) { return !f.closest('.lrow'); }).map(function (f) {
+      return (f.querySelector('.fld__label, .ctl-toggle__label') || {}).textContent;
+    });
+  }
+  var n = r.view.filter('arrow');
+  check('"arrow" leaves only the arrow settings', labels().every(function (t) { return /arrow/i.test(t); }) && labels().length > 2, true);
+  check('and counts them', n, labels().length);
+  r.view.filter('color');
+  check('"color" finds the Colour settings', labels().some(function (t) { return /colour/i.test(t); }), true);
+  r.view.filter('headline');
+  check('a list is found by the fields inside it', labels().indexOf('Banners') > -1, true);
+  r.view.filter('rotation');
+  check('a section name brings its whole section', labels().length > 2, true);
+  r.view.filter('zzqx');
+  check('no match says so', shown('.ig__none').length && shown('.ig__none')[0].textContent, 'No setting here matches “zzqx”.');
+  r.view.filter('');
+  check('clearing it puts every fold back', /^\+Slides( -[A-Za-z ]+)+$/.test(sections().replace(/\+Layout/, '-Layout')), true);
+
+  // --- conditions still apply ----------------------------------------------
+  var hs = CB.hydrate(CB.get('hero-slider'), {});
+  hs.arrows = false;
+  r = draw('hero-slider', hs);
+  r.view.filter('arrow');
+  check('a setting switched off by another stays hidden in a search', labels().join(', '), 'Arrows');
+
+  // --- tokens -------------------------------------------------------------
+  I.render(host, { props: [
+    { t: 'section', label: 'Brand' }, { k: 'brand', t: 'color', label: 'Primary' },
+    { t: 'section', label: 'Shape' }, { k: 'radius', t: 'range', label: 'Radius', min: 0, max: 20 }
+  ] }, { brand: '#96694c', radius: 8 }, function () {}, { panel: 'tokens', defaults: { brand: '#96694c', radius: 4 } });
+  check('without fold: settings, every section opens', sections(), '+Brand +Shape');
+  host.querySelectorAll('.ig__toggle')[1].click();
+  check('and a change is measured from the defaults it is given', host.querySelectorAll('.ig__badge')[1].textContent, '1 changed');
+  try { localStorage.removeItem('componentry.ui.v1'); } catch (e) {}
+
+  document.getElementById('out').textContent = log.join('\n');
+  var bar = document.getElementById('bar');
+  bar.className = 'bar ' + (fail ? 'bad' : 'ok');
+  bar.textContent = fail ? (fail + ' failed, ' + pass + ' passed')
+                         : (pass + '/' + pass + ' passed — every panel opens on its content, with settings a click away');
+  document.title = fail ? 'INSPECTOR FAIL ' + fail : 'INSPECTOR OK ' + pass;
+});
+</script>

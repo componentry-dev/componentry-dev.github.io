@@ -516,20 +516,30 @@
     renderLayers();
     renderInspector();
     highlightPreview();
+    /* Choosing a block is asking to edit it. Left on Design tokens, the click
+       selected the block and showed nothing about it. */
+    switchInspTab('props');
   }
 
   /* -------------------------------------------------------- inspector */
+
+  var inspected = null;   // the uid the panel was last drawn for
+  var inspView = null;    // its { filter } handle
 
   function renderInspector() {
     var host = $('#inspector');
     var inst = selected();
     var title = $('#inspTitle');
     var sub = $('#inspSub');
+    var find = $('#inspFind');
 
     if (!inst) {
       title.textContent = 'Properties';
       sub.textContent = 'Nothing selected';
       host.innerHTML = '<p class="rail__empty">Select a component on the canvas — or in the Layers tab — to edit it.</p>';
+      find.value = '';
+      find.parentNode.hidden = true;
+      inspected = inspView = null;
       return;
     }
 
@@ -543,12 +553,23 @@
     // default anyway.
     inst.props = CB.hydrate(def, inst.props);
 
-    CB.Inspector.render(host, { props: CB.fields(def) }, inst.props, function () {
+    inspView = CB.Inspector.render(host, { props: CB.fields(def) }, inst.props, function () {
       dirty = true;
       pushHistoryDebounced();
       refreshPreview();
       renderLayersLabelsOnly();
-    });
+    }, { panel: 'props', fold: 'settings' });
+
+    find.parentNode.hidden = false;
+    /* A different block starts at its top with no search. The same block drawn
+       again (undo, a reload) keeps both, so the place being worked on stays. */
+    if (inst.uid !== inspected) {
+      find.value = '';
+      host.scrollTop = 0;
+    } else if (find.value) {
+      inspView.filter(find.value);
+    }
+    inspected = inst.uid;
   }
 
   var labelTimer;
@@ -637,7 +658,7 @@
       pushHistoryDebounced();
       refreshPreview();
       paintContrast(contrast);
-    });
+    }, { panel: 'tokens', defaults: CB.DEFAULT_TOKENS });
     paintContrast(contrast);
 
     var reset = document.createElement('button');
@@ -1208,6 +1229,17 @@
     });
     $$('#rightRail [data-insp]').forEach(function (b) {
       b.addEventListener('click', function () { switchInspTab(b.dataset.insp); });
+    });
+    $('#inspFind').addEventListener('input', function (e) {
+      if (inspView) inspView.filter(e.target.value);
+      $('#inspector').scrollTop = 0;
+    });
+    $('#inspFind').addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && e.target.value) {
+        e.preventDefault();
+        e.target.value = '';
+        if (inspView) inspView.filter('');
+      }
     });
     $$('#deviceBar [data-device]').forEach(function (b) {
       b.addEventListener('click', function () { setDevice(b.dataset.device); });

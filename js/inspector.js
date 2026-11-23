@@ -25,17 +25,48 @@ CB.Inspector = (function () {
   /* ----------------------------------------------------------- one control */
   /* get()/set() let the same code drive top-level props and list sub-fields. */
 
+  /* Help is there when asked for, behind a "?" beside the label.
+
+     It used to sit open under every field: 569 notes, a fifth of every panel's
+     height, most of them three lines or more. Read once, that prose is useful;
+     read every time a panel opens, it is what makes the panel look like a
+     manual. Screen readers still get it on every visit, through
+     aria-describedby, which reads a hidden description all the same. */
+  function helpParts(field, id) {
+    if (!field.help) return null;
+    var p = el('p', 'fld__help');
+    p.id = id + '-help';
+    p.hidden = true;
+    p.textContent = field.help;
+    var q = el('button', 'fld__q');
+    q.type = 'button';
+    q.innerHTML = '<span aria-hidden="true">?</span>';
+    q.title = 'What this does';
+    q.setAttribute('aria-label', 'About ' + (field.label || field.k));
+    q.setAttribute('aria-expanded', 'false');
+    q.setAttribute('aria-controls', p.id);
+    q.addEventListener('click', function () {
+      p.hidden = !p.hidden;
+      q.setAttribute('aria-expanded', p.hidden ? 'false' : 'true');
+    });
+    return { text: p, button: q };
+  }
+
   function control(field, get, set, onInput) {
     var wrap = el('div', 'fld');
     var id = 'f-' + Math.random().toString(36).slice(2, 8);
     var v = get();
     var input;
+    var help = helpParts(field, id);
 
     if (field.t !== 'toggle') {
+      var top = el('div', 'fld__top');
       var lab = el('label', 'fld__label');
       lab.setAttribute('for', id);
       lab.textContent = field.label || field.k;
-      wrap.appendChild(lab);
+      top.appendChild(lab);
+      if (help) top.appendChild(help.button);
+      wrap.appendChild(top);
     }
 
     switch (field.t) {
@@ -194,7 +225,10 @@ CB.Inspector = (function () {
         text.textContent = field.label || field.k;
         input.addEventListener('change', function () { set(input.checked); onInput(); });
         t.appendChild(input); t.appendChild(track); t.appendChild(text);
-        wrap.appendChild(t);
+        var trow = el('div', 'fld__top fld__top--toggle');
+        trow.appendChild(t);
+        if (help) trow.appendChild(help.button);
+        wrap.appendChild(trow);
         break;
       }
 
@@ -311,10 +345,9 @@ CB.Inspector = (function () {
         wrap.appendChild(input);
     }
 
-    if (field.help) {
-      var h = el('p', 'fld__help');
-      h.textContent = field.help;
-      wrap.appendChild(h);
+    if (help) {
+      wrap.appendChild(help.text);
+      if (input) input.setAttribute('aria-describedby', help.text.id);
     }
     return wrap;
   }
@@ -333,6 +366,17 @@ CB.Inspector = (function () {
 
     var rows = el('div', 'list__rows');
     box.appendChild(rows);
+
+    function closeRows() {
+      Array.prototype.forEach.call(rows.children, function (r) {
+        r.classList.remove('is-open');
+        var t = r.querySelector('.lrow__toggle');
+        if (t) t.setAttribute('aria-expanded', 'false');
+      });
+      Object.keys(openRows).forEach(function (k) {
+        if (k.indexOf(field.k + ':') === 0) delete openRows[k];
+      });
+    }
 
     function labelFor(item, i) {
       var key = field.itemLabel;
@@ -358,9 +402,20 @@ CB.Inspector = (function () {
         toggle.type = 'button';
         toggle.innerHTML = '<span class="lrow__chev"></span><span class="lrow__name"></span>';
         toggle.querySelector('.lrow__name').textContent = labelFor(item, i);
+        toggle.setAttribute('aria-expanded', openRows[rowKey] ? 'true' : 'false');
+        /* One entry open at a time. A Hero Slider banner is fourteen fields
+           and over a thousand pixels; two open at once put the second one's
+           fields a full screen below its own name, and it was no longer clear
+           which banner a field belonged to. */
         toggle.addEventListener('click', function () {
-          var open = row.classList.toggle('is-open');
-          if (open) openRows[rowKey] = true; else delete openRows[rowKey];
+          var open = !row.classList.contains('is-open');
+          if (open) closeRows();
+          row.classList.toggle('is-open', open);
+          toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+          if (open) {
+            openRows[rowKey] = true;
+            row.scrollIntoView({ block: 'nearest' });
+          } else delete openRows[rowKey];
         });
 
         var acts = el('div', 'lrow__acts');
@@ -436,10 +491,11 @@ CB.Inspector = (function () {
       var blank = {};
       (field.fields || []).forEach(function (sub) { blank[sub.k] = sub.value; });
       props[field.k].push(blank);
+      closeRows();
       openRows[field.k + ':' + (props[field.k].length - 1)] = true;
       paint();
       onInput();
-      rows.lastChild.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      rows.lastChild.scrollIntoView({ block: 'nearest' });
     });
     box.appendChild(add);
 
@@ -1055,57 +1111,194 @@ CB.Inspector = (function () {
 
   /* -------------------------------------------------------------- render */
 
-  function render(host, def, props, onChange) {
+  /* ------------------------------------------------------- folding sections
+
+     A block's panel averaged 2,829px, nearly four screens, and the shared
+     Advanced section was 1,478px of it on every block. So each section folds,
+     and the panel opens on the content: sections holding words, pictures or
+     lists start open, sections of pure settings (sliders, switches, menus)
+     start folded. Anything someone opens or folds by hand is remembered by
+     the section's name, in every block that has a section of that name, so
+     someone who works in Motion all day sees Motion open everywhere. */
+  var UI_KEY = 'componentry.ui.v1';
+  function uiRead() {
+    try { return JSON.parse(localStorage.getItem(UI_KEY)) || {}; } catch (e) { return {}; }
+  }
+  function uiWrite(patch) {
+    try {
+      var u = uiRead();
+      Object.keys(patch).forEach(function (k) { u[k] = patch[k]; });
+      localStorage.setItem(UI_KEY, JSON.stringify(u));
+    } catch (e) { /* private window: folding still works, it just isn't kept */ }
+  }
+
+  var CONTENT = { text: 1, textarea: 1, url: 1, image: 1, list: 1, grid: 1, date: 1, datetime: 1 };
+  /* Underscored keys are the shared Advanced settings, text boxes or not. */
+  function isContent(f) { return !!CONTENT[f.t || 'text'] && !/^_/.test(f.k || ''); }
+
+  /* Whether a value has been moved off its default. Loose for single values,
+     because a select hands back "3" for a default of 3; deep for lists. */
+  function same(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') {
+      return (a == null ? '' : String(a)) === (b == null ? '' : String(b));
+    }
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    var keys = {};
+    Object.keys(a).concat(Object.keys(b)).forEach(function (k) { keys[k] = 1; });
+    return Object.keys(keys).every(function (k) { return same(a[k], b[k]); });
+  }
+
+  /* "colour" and "color" are one search. The panel is written in British
+     spelling and the people typing into it mostly are not. */
+  function norm(s) {
+    return String(s == null ? '' : s).toLowerCase()
+      .replace(/colour/g, 'color').replace(/grey/g, 'gray').replace(/centre/g, 'center')
+      .replace(/\s+/g, ' ').trim();
+  }
+
+  /* -------------------------------------------------------------- render */
+
+  /* opts.panel names the panel, so the Properties and Design tokens panels keep
+     their folds apart. opts.fold 'settings' starts settings sections folded;
+     without it every section starts open. opts.defaults is what "changed" is
+     measured from, where the schema's own values are not the defaults.
+     Returns { filter(q) } for a search box, which shows only the fields whose
+     label (or section) matches. */
+  function render(host, def, props, onChange, opts) {
+    opts = opts || {};
+    var panel = opts.panel || 'props';
     host.innerHTML = '';
     openRows = {};
 
+    var fieldsDef = def.props || [];
+    var base = opts.defaults || CB.defaults({ props: fieldsDef });
+    var folds = uiRead().folds || {};
+    var groups = [];
     var conditionals = [];
+    var query = '';
 
-    (def.props || []).forEach(function (field) {
-      if (field.t === 'section') {
-        var sec = el('div', 'insp__section');
-        sec.textContent = field.label;
-        host.appendChild(sec);
-        return;
+    function group(label) {
+      var g = { label: label, items: [], open: true };
+      g.node = el(label ? 'section' : 'div', label ? 'ig' : 'ig ig--plain');
+      if (label) {
+        var h = el('h3', 'ig__head');
+        g.btn = el('button', 'ig__toggle');
+        g.btn.type = 'button';
+        g.btn.innerHTML = '<span class="ig__chev" aria-hidden="true"></span>' +
+          '<span class="ig__name"></span><span class="ig__badge"></span>';
+        g.btn.querySelector('.ig__name').textContent = label;
+        g.badge = g.btn.querySelector('.ig__badge');
+        g.btn.addEventListener('click', function () {
+          g.open = !g.open;
+          folds[panel + ':' + label] = g.open;
+          uiWrite({ folds: folds });
+          paint();
+        });
+        h.appendChild(g.btn);
+        g.node.appendChild(h);
       }
+      g.body = el('div', 'ig__body');
+      g.body.id = 'ig-' + Math.random().toString(36).slice(2, 8);
+      if (g.btn) g.btn.setAttribute('aria-controls', g.body.id);
+      g.node.appendChild(g.body);
+      host.appendChild(g.node);
+      groups.push(g);
+      return g;
+    }
 
-      var node;
+    var current = null;
+    fieldsDef.forEach(function (field) {
+      if (field.t === 'section') { current = group(field.label); return; }
+
       /* Column extras are edited from inside the grid, which owns how many
          columns there are. Two places to add a column is one place too many,
          so this field carries the values without drawing a panel of its own. */
       if (field.t === 'columns') return;
+      if (!current) current = group(null);
 
+      var node;
       if (field.t === 'list') {
-        node = listEditor(field, props, onChange);
+        node = listEditor(field, props, changed);
       } else if (field.t === 'grid') {
-        node = gridEditor(field, props, onChange, def);
+        node = gridEditor(field, props, changed, def);
       } else {
         node = control(
           field,
           function () { return props[field.k]; },
           function (v) { props[field.k] = v; },
-          function () { applyConditions(); onChange(); }
+          changed
         );
       }
 
+      var words = [field.label || field.k];
+      (field.fields || []).forEach(function (s) { if (s.label) words.push(s.label); });
+      current.items.push({ field: field, node: node, words: norm(words.join(' ')) });
       if (field.when) conditionals.push({ node: node, when: field.when });
-      host.appendChild(node);
+      current.body.appendChild(node);
     });
 
-    function applyConditions() {
+    groups.forEach(function (g) {
+      if (!g.label) return;
+      var key = panel + ':' + g.label;
+      g.open = key in folds ? !!folds[key]
+        : opts.fold !== 'settings' || g.items.some(function (it) { return isContent(it.field); });
+    });
+
+    var none = el('p', 'ig__none');
+    none.hidden = true;
+    host.appendChild(none);
+
+    function changed() { paint(); onChange(); }
+
+    function paint() {
       conditionals.forEach(function (c) {
         var show = Object.keys(c.when).every(function (key) {
           return c.when[key].indexOf(props[key]) > -1;
         });
         c.node.classList.toggle('is-hidden', !show);
       });
+
+      var q = norm(query), hits = 0;
+      groups.forEach(function (g) {
+        var whole = q && g.label && norm(g.label).indexOf(q) > -1;
+        var shown = 0, edits = 0;
+        g.items.forEach(function (it) {
+          var match = !q || whole || it.words.indexOf(q) > -1;
+          it.node.classList.toggle('is-filtered', !match);
+          if (it.node.classList.contains('is-hidden')) return;
+          if (match) shown++;
+          if (it.field.k && !same(props[it.field.k], base[it.field.k])) edits++;
+        });
+        hits += q ? shown : 0;
+        /* While searching, a section with a match is open whatever its fold,
+           and its fold comes back untouched when the search is cleared. */
+        var open = !g.label || (q ? shown > 0 : g.open);
+        g.node.hidden = !shown;
+        g.node.classList.toggle('is-open', open);
+        g.body.hidden = !open;
+        if (g.btn) {
+          g.btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+          /* Folded sections still say when something inside them was changed,
+             so a custom anchor or padding cannot disappear behind a fold. */
+          g.badge.textContent = edits ? edits + ' changed' : '';
+        }
+      });
+
+      none.hidden = !q || hits > 0;
+      none.textContent = 'No setting here matches “' + query.trim() + '”.';
+      return hits;
     }
-    applyConditions();
+    paint();
+
+    return {
+      filter: function (q) { query = String(q || ''); return paint(); }
+    };
   }
 
   return {
     render: render, importRows: importRows, parseTable: parseTable,
     applyPaste: applyPaste, squareUp: squareUp, blankColumn: blankColumn,
-    importGrid: importGrid
+    importGrid: importGrid, same: same, isContent: isContent
   };
 })();
